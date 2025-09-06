@@ -1,12 +1,10 @@
 # Data Model Spec — Ecommerce Ordering (v1)
 
-> 목적: API 명세를 뒷받침하는 **테이블 설계/컬럼 정의/제약/인덱스/상태 규약** 정리. 구현 전 스키마 합의용.
+> 목적: API 명세를 뒷받침하는 **테이블 설계** 정리.
 
 ## 0. 스키마 개요
-- **DB**: PostgreSQL 15+
-- **타임존**: `TIMESTAMP` (UTC)
-- **화폐단위**: KRW(정수, 원)
-- **명명 규칙**: 스네이크 케이스, 단수 테이블명(예: `order_items` 제외)
+- **DB**: PostgreSQL
+- **명명 규칙**: 스네이크 케이스
 
 ---
 
@@ -19,7 +17,7 @@
 | `name` | TEXT | NOT NULL | 표시 이름 |
 | `created_at` | TIMESTAMP | NOT NULL DEFAULT now() | 생성 시각 |
 
-인덱스: (없음) — 필요 시 `name` 검색 인덱스 추가.
+인덱스: 필요 시 `name` 검색 인덱스 추가.
 
 ---
 
@@ -35,7 +33,7 @@
 **비즈니스 규칙**
 - balance ≥ 0 유지. 음수 불가.
 - 충전: `balance = balance + :amount` (amount ≥ 1)
-- 차감: `WHERE balance >= :amount` 조건부 UPDATE로 원자적 차감
+- 차감: `WHERE balance >= :amount` 조건부 UPDATE 쿼리로 음수 잔액 음수 방지 필요
 
 ---
 
@@ -52,7 +50,7 @@
 인덱스: PK(id), (updated_at)
 
 **비즈니스 규칙**
-- 재고 차감: `WHERE stock >= :qty` 조건부 UPDATE (0행이면 부족)
+- 재고 차감: `WHERE stock >= :qty` 조건부 UPDATE로 재고 음수 방지. (* 비즈니스 로직에 따라 음수 재고 허용가능 할지?)
 
 ---
 
@@ -99,13 +97,15 @@
 | `total_price` | BIGINT | NOT NULL | 총액(할인 전) |
 | `discount_applied` | BIGINT | NOT NULL | 할인액 |
 | `final_price` | BIGINT | NOT NULL | 결제액(≥0) |
-| `status` | TEXT | NOT NULL | 'PAID'|'CANCELED'|'FAILED' |
+| `status` | TEXT | NOT NULL | 'PAID'|'CANCELED'|'FAILED' |'RESERVED'|
 | `idempotency_key` | TEXT | UNIQUE NOT NULL | 멱등성 키 |
 | `paid_at` | TIMESTAMP |  | 결제 시각 |
 | `created_at` | TIMESTAMP | NOT NULL DEFAULT now() | 생성 시각 |
 
 인덱스: (paid_at, status)
-
+status 컬럼은 서버 소스상에서 ENUM으로 관리 필요.
+PAID: 실제 결재까지 완료
+RESERVED: 주문 완료
 ---
 
 ### 1.7 `order_items`
@@ -120,7 +120,6 @@
 인덱스: (order_id), (product_id)
 
 ---
-
 ### 1.8 `outbox_event`
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -133,7 +132,9 @@
 | `created_at` | TIMESTAMP | NOT NULL DEFAULT now() | 생성 시각 |
 
 인덱스: (status, next_retry_at)
+status, event_type 컬럼은 서버 소스상에서 ENUM으로 관리 필요.
 
+ 
 ---
 
 ## 2. DDL
@@ -235,7 +236,7 @@ CREATE INDEX IF NOT EXISTS ix_outbox_status_retry ON outbox_event(status, next_r
 ---
 
 ## 4. 처리기준
-- **orders.status**: `PAID`(성공), `FAILED`(결제 실패/롤백), `CANCELED`(주문 취소)
+- **orders.status**: `RESERVED`(주문완료), `PAID`(결제완료), `FAILED`(결제 실패/롤백), `CANCELED`(주문 취소)
 - **coupons**: `claimed_by IS NULL` → 미발급, `claimed_by NOT NULL AND used_at IS NULL` → 보유, `used_at NOT NULL` → 사용
 - **잔액/재고 차감**: 조건부 UPDATE 0행이면 실패 처리
 - **Idempotency-Key**: `orders.idempotency_key` UNIQUE로 중복 생성 방지
