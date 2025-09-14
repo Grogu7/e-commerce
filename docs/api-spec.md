@@ -5,32 +5,28 @@
 ## 0. 개요
 - **Base URL (로컬)**: `http://localhost:8080/api`
 - **Media Type**: `application/json; charset=utf-8`
-- **시간 표기**: ISO-8601(UTC) 예) `2025-08-31T08:00:00Z`
-- **통화 단위**: KRW(정수, 원 단위)
-- **정렬/페이지네이션**: Cursor 기반(상품 목록)
 - **멱등성**: 주문 생성 시 `Idempotency-Key` 헤더 필수
-- **버전 정책**: URL 기반 버전 도입 가능(`/api/v1`), 본 문서는 v1 가정
+- **버전 정책**: URL 버전 포함(`/api/v1`)
 
 ---
 
 ## 1. 인증/보안/헤더
 
-### 1.1 인증 스킴
-- **Authorization**: `Bearer <JWT>` — 운영 환경 기준(역할/권한은 추후 확정)
-- 샘플/개발 단계에선 미적용 또는 테스트 토큰 사용 가능
+### 1.1 인증 
+- **Authorization**: `Bearer <JWT>` JWT 토큰으로 사용자 인증 관리(Redis 활용)
 
 ### 1.2 멱등성 헤더
 - **Idempotency-Key**: 주문/결제 API에서 **필수**. 클라이언트가 고유 UUID 생성하는 것으로 가정.
   - 동일 키로 같은 요청이 재시도되면 서버는 **첫 결과**를 반환해야함.
 
-### 1.3 공통 요청 헤더
+### 1.3 Request 헤더
 | Header | Type | Required | Description |
 |---|---|:---:|---|
 | Authorization | string | optional | `Bearer <JWT>` |
 | Content-Type | string | required | `application/json` |
 | Idempotency-Key | string | required* | *`POST /orders`에서만 필수 |
 
-### 1.4 공통 응답 헤더
+### 1.4 Response 헤더
 | Header | Description |
 |---|---|
 | X-Request-Id | 서버가 생성한 요청 추적 ID |
@@ -38,9 +34,9 @@
 - 로깅 및 클라이언트 측에서 서버 측으로 특정 API 호출 문의 시 사용 목적
 ---
 
-## 2. 에러 모델 & 표준 코드
+## 2. 에러 
 
-### 2.1 에러 응답 바디
+### 2.1 에러 Response
 ```json
 {
   "code": "INSUFFICIENT_BALANCE",
@@ -49,8 +45,8 @@
 }
 ```
 
-- `code`: 기계 가독성(대문자 스네이크)
-- `message`: 사용자/로그용 간단 설명(다국어는 별도)
+- `code`: 에러코드
+- `message`: 사용자/로그용 간단 설명(option - 다국어처리)
 - `data`: 선택, 상황별 부가 정보
 
 ### 2.2 공통 에러 코드 표
@@ -72,7 +68,7 @@
 ## 3. API 상세
 
 ### 3.1 잔액 조회 — **GET** `/wallets/{userId}`
-- 사용자의 현재 지갑 잔액을 조회.
+- 사용자의 현재 충전 잔액을 조회.
 
 **Path Params**
 - `userId` (long, required)
@@ -82,7 +78,7 @@
 { "userId": 101, "balance": 125000 }
 ```
 
-**Errors**: `404 NOT_FOUND`(지갑/사용자 없음)
+**Errors**: `404 NOT_FOUND`(잔액/사용자 없음)
 
 ---
 
@@ -105,7 +101,7 @@
 
 **Errors**
 - `400 INVALID_REQUEST` (amount 음수/0)
-- `404 NOT_FOUND` (사용자/지갑 없음)
+- `404 NOT_FOUND` (사용자/잔액 없음)
 
 ---
 
@@ -189,7 +185,7 @@
 ---
 
 ### 3.7 주문/결제 — **POST** `/orders`
-- **트랜잭션**: 재고 차감 → 잔액 차감 → 주문/아이템 생성 → 쿠폰 사용 처리 → Outbox 이벤트 기록 (하나라도 실패 시 전체 롤백)
+- **트랜잭션**: 재고 차감 → 잔액 차감 → 주문/아이템 생성 → 쿠폰 사용 처리
 - **헤더**: `Idempotency-Key` **필수**
 
 **Request Headers**
